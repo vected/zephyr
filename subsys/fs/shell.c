@@ -275,6 +275,76 @@ static int cmd_rm(const struct shell *sh, size_t argc, char **argv)
 	return err;
 }
 
+static int cmd_cp(const struct shell *sh, size_t argc, char **argv)
+{
+	int err;
+	char path_src[MAX_PATH_LEN];
+	char path_dst[MAX_PATH_LEN];
+	struct fs_file_t file_src;
+	struct fs_file_t file_dst;
+	uint8_t buf[BUF_CNT];
+	ssize_t buf_len;
+	uint8_t *write_buf;
+	ssize_t num_written;
+
+	create_abs_path(argv[1], path_src, sizeof(path_src));
+	create_abs_path(argv[2], path_dst, sizeof(path_dst));
+
+	fs_file_t_init(&file_src);
+	fs_file_t_init(&file_dst);
+
+	err = fs_open(&file_src, path_src, FS_O_READ);
+	if (err) {
+		shell_error(sh, "Failed to open %s (%d)", path_src, err);
+		goto exit;
+	}
+
+	err = fs_open(&file_dst, path_dst, FS_O_CREATE | FS_O_TRUNC | FS_O_WRITE);
+	if (err) {
+		shell_error(sh, "Failed to open %s (%d)", path_dst, err);
+		goto close_src;
+	}
+
+	while (true) {
+		buf_len = fs_read(&file_src, buf, BUF_CNT);
+		if (buf_len < 0) {
+			err = buf_len;
+			shell_error(sh, "Failed to read %s (%d)", path_src, err);
+			goto close;
+		}
+		if (buf_len == 0) {
+			break;
+		}
+
+		write_buf = buf;
+		while (buf_len > 0) {
+			num_written = fs_write(&file_dst, write_buf, buf_len);
+			if (num_written < 0) {
+				err = num_written;
+				shell_error(sh, "Failed to write %s (%d)", path_dst, err);
+				goto close;
+			}
+			if (num_written == 0) {
+				err = -EIO;
+				shell_error(sh, "Failed to write %s", path_dst);
+				goto close;
+			}
+
+			buf_len -= num_written;
+			write_buf += num_written;
+		}
+	}
+
+close:
+	fs_close(&file_dst);
+
+close_src:
+	fs_close(&file_src);
+
+exit:
+	return err;
+}
+
 static int cmd_read(const struct shell *sh, size_t argc, char **argv)
 {
 	char path[MAX_PATH_LEN];
@@ -850,6 +920,7 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_fs,
 		"Concatenate files and print on the standard output",
 		cmd_cat, 2, 255),
 	SHELL_CMD_ARG(rm, NULL, "Remove file", cmd_rm, 2, 0),
+	SHELL_CMD_ARG(cp, NULL, "Copy file", cmd_cp, 3, 0),
 	SHELL_CMD_ARG(statvfs, NULL, "Show file system state", cmd_statvfs, 2, 0),
 	SHELL_CMD_ARG(trunc, NULL, "Truncate file", cmd_trunc, 2, 255),
 	SHELL_CMD_ARG(write, NULL, "Write file", cmd_write, 3, 255),
